@@ -28,16 +28,24 @@ or invoke `~/.local/bin/android-use` directly. A source checkout also runs with
 
 ## Agent Skill
 
+The installer links `~/.agents/skills/android-use` to the installed checkout by
+default. Existing directories or links are preserved. To skip this default link:
+
 ```bash
-android-use skill install --project       # current directory/.agents/skills/android-use
-android-use skill install --user          # ~/.agents/skills/android-use
+curl -fsSL https://raw.githubusercontent.com/xhzq233/android-use/main/scripts/install.sh | bash -s -- --no-skill
 ```
 
-Choose either install scope; `--project /path/to/project` selects another project.
-Only `SKILL.md` and `references/` are copied, not the CLI or repository. These
-commands need no ADB or device. To refresh a previously installed Skill after
-updating the CLI, repeat its install command with `--force`; this overwrites
-bundled documents, including any local edits to them.
+`--no-skill` does not remove existing links. Skill files remain in the checkout;
+link it into any agent's skills directory yourself, for example in a project:
+
+```bash
+mkdir -p .agents/skills
+ln -s "$HOME/.local/share/android-use" .agents/skills/android-use
+```
+
+Use your chosen install root if customized. Linked Skills follow CLI updates
+automatically. Old copied Skills remain untouched and do not update automatically;
+move them aside yourself if replacing them with a link.
 
 ## Requirements
 

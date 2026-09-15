@@ -7,8 +7,7 @@ description: "Operate or troubleshoot Android devices through ADB with android-u
 
 Use the installed `android-use` command. If it is not on PATH, the default entry
 is `~/.local/bin/android-use`; a source checkout also runs with `./android-use`.
-The Skill directory contains instructions, not the executable. On Windows,
-invoke the checkout's entrypoint with Python.
+On Windows, invoke the checkout's entrypoint with Python.
 
 Use `android-use devices` and select an online ADB serial. USB, emulators and
 network connections are accepted; with multiple targets pass `-s SERIAL` or set

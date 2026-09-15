@@ -26,7 +26,6 @@ from .command_handlers import (
 )
 from .logcat_commands import action_marker
 from .proxy_device import MITMPROXY_CA_SDCARD_PATH
-from .skill_commands import command_skill_install
 from .visual_capture import duration_arg
 
 
@@ -48,15 +47,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Android evidence and semantic UI helper backed by ADB",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-
-    skill = sub.add_parser("skill", help="install the agent Skill (no device needed)")
-    skill_sub = skill.add_subparsers(dest="skill_action", required=True)
-    skill_install = skill_sub.add_parser("install", help="copy Skill documents into project or user skills")
-    scope = skill_install.add_mutually_exclusive_group(required=True)
-    scope.add_argument("--project", nargs="?", const=".", metavar="DIR", help="install under DIR/.agents/skills (default DIR: current directory)")
-    scope.add_argument("--user", action="store_true", help="install under ~/.agents/skills")
-    skill_install.add_argument("--force", action="store_true", help="overwrite existing bundled Skill documents")
-    skill_install.set_defaults(func=command_skill_install, resolve_device=False)
 
     devices = sub.add_parser("devices", help="list ADB devices and transport types")
     add_format(devices)

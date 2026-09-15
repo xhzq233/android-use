@@ -36,10 +36,11 @@ on a USB device before committing the Java source and JAR together.
 `scripts/install.sh` installs a shallow Git checkout and a command symlink.
 Use `ANDROID_USE_REPO_URL`, `ANDROID_USE_REF`, `ANDROID_USE_INSTALL_ROOT` and
 `ANDROID_USE_BIN_DIR` to exercise installation and updates in temporary directories.
-Verify the installed entrypoint with Skill installation (without ADB), then real
-device selection, dump and screenshot. Keep tests away from the user's installation.
-Skill installation copies only the root `SKILL.md` and `references/operations.md`;
-update the file list in `android_use/skill_commands.py` when adding a reference.
+Verify the default Skill link, `--no-skill`, preservation of existing Skill paths,
+and manual project links, then real device selection, dump and screenshot.
+Keep tests away from the user's installation. The Skill link points to the
+checkout's root `SKILL.md` and `references/`; no separate copy or CLI subcommand
+is involved.
 
 Before publishing, scan the selected Git history as well as the current tree for
 credentials, private identities and internal references. The project is distributed
