@@ -31,9 +31,14 @@ need Python and ADB, without a host architecture restriction.
 
 ## Conditional workflows
 
-Read [operations](references/operations.md) for ADB file/Intent recipes, semantic
-waits and scrolling, screenshot/capture, persistent logcat, failure evidence,
-or proxy capture.
+Read only the reference needed for the task:
+
+- [ADB](references/adb.md): devices, App lifecycle, input and file transfer.
+- [UI](references/ui.md): dump, tap, wait, scrolling, screenshots, capture and failure evidence.
+- [DeepLink](references/deeplink.md): URI dispatch and result assertions.
+- [Logcat](references/logcat.md): persistent capture, health and evidence limits.
+- [Proxy](references/proxy.md): HTTP/HTTPS capture, certificates and mocks.
+
 Use `android-use <command> --help` for full flags.
 If a command returns `evidence=`, inspect it before collecting the same evidence
 again. Inspect screenshots directly. Stop only the
