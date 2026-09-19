@@ -164,7 +164,25 @@ def run_adb_shell(
     timeout: float = 60.0,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    return run_adb(["shell", shlex.join(command)], serial=serial, timeout=timeout, check=check)
+    # Legacy/remote ADB transports can return 0 even when the device command fails.
+    # Keep argv quoting and report the device status independently of the transport.
+    marker = "\nANDROID_USE_EXIT_STATUS="
+    script = shlex.join(command) + '; printf "\\nANDROID_USE_EXIT_STATUS=%s\\n" "$?"'
+    result = run_adb(
+        ["shell", shlex.join(["sh", "-c", script])],
+        serial=serial, timeout=timeout, check=False,
+    )
+    if result.returncode == 0:
+        output, separator, status = result.stdout.rpartition(marker)
+        if separator and status.strip().isdigit():
+            result.stdout = output
+            result.returncode = int(status.strip())
+        else:
+            result.returncode = 1
+            result.stderr += "\nADB shell did not return the device exit status"
+    if check and result.returncode != 0:
+        raise AdbCommandError(result.args, result.returncode, result.stdout, result.stderr)
+    return result
 
 
 def list_adb_devices() -> list[AdbDeviceInfo]:
