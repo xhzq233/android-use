@@ -538,8 +538,10 @@ def _launch_server(
         "-c",
         SERVER_CLASS,
     ]
+    # Ignore HUP before forking: a remote ADB shell can close before the child
+    # reaches uiautomator's --nohup handler (or an external nohup/setsid).
     shell_command = (
-        f"{shlex.join(tokens)} >{shlex.quote(REMOTE_LOG)} 2>&1 </dev/null &"
+        f"trap '' HUP; {shlex.join(tokens)} >{shlex.quote(REMOTE_LOG)} 2>&1 </dev/null &"
     )
     try:
         run_adb(
