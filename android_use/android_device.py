@@ -327,7 +327,7 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
             )
         return _stock_dump_xml(serial, compressed=compressed, timeout=timeout)
 
-    from .persistent_ui import dump_xml as persistent_dump_xml, stop_server
+    from .persistent_ui import HierarchyUnavailableError, dump_xml as persistent_dump_xml, stop_server
 
     deadline = time.monotonic() + max(0.5, timeout)
     persistent_budget = max(0.5, min(6.0, timeout - 3.5))
@@ -337,6 +337,9 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
             compressed=compressed,
             timeout=persistent_budget,
         )
+    except HierarchyUnavailableError as error:
+        raise RuntimeError("Android has no active UI hierarchy after brief retries; the UI server is responding. "
+                           "Inspect the screenshot/current app and retry when the page is ready.") from error
     except Exception as persistent_error:
         remaining = deadline - time.monotonic()
         released = (

@@ -32,6 +32,10 @@ class PersistentUiError(RuntimeError):
     pass
 
 
+class HierarchyUnavailableError(PersistentUiError):
+    """The server answered, but Android has no active accessibility root yet."""
+
+
 @dataclass(frozen=True)
 class ServerInfo:
     protocol: int
@@ -191,10 +195,10 @@ def _exchange_raw(
                 header = raw_header.decode("utf-8", errors="replace").strip()
                 fields = header.split()
                 if not fields or fields[0] != "OK":
-                    raise PersistentUiError(
-                        header.removeprefix("ERR ").strip()
-                        or "UiAutomation server returned an empty error"
-                    )
+                    message = header.removeprefix("ERR ").strip() or "UiAutomation server returned an empty error"
+                    if "UI hierarchy root is unavailable" in message:
+                        raise HierarchyUnavailableError(message)
+                    raise PersistentUiError(message)
                 if expects_payload:
                     if len(fields) < 2:
                         raise PersistentUiError(f"invalid DUMP response: {header!r}")
@@ -588,6 +592,8 @@ def _ensure_server_locked(serial: str, deadline: float) -> ServerInfo:
     time.sleep(0.05)
 
     remote = _ensure_remote_jar(serial, build_hash, remaining())
+    if deadline - time.monotonic() < 1.0:
+        raise PersistentUiError("UiAutomation startup budget exhausted before launch; no new process was started")
     _launch_server(serial, remote, build_hash, remaining())
     last_error = "server did not respond"
     while time.monotonic() < deadline:
@@ -643,6 +649,20 @@ def _dump_once(serial: str, compressed: bool, timeout: float) -> str:
     return xml
 
 
+def _dump_ready_hierarchy(serial: str, compressed: bool, timeout: float) -> str:
+    deadline = time.monotonic() + timeout
+    for attempt in range(3):
+        try:
+            return _dump_once(serial, compressed, max(0.2, deadline - time.monotonic()))
+        except HierarchyUnavailableError:
+            # A valid server error is not a dead transport. Let the page settle
+            # without tearing down the working accessibility session.
+            if attempt == 2 or deadline - time.monotonic() < 0.4:
+                raise
+            time.sleep(0.2)
+    raise AssertionError("unreachable")
+
+
 def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str:
     total_budget = max(0.5, min(timeout, PERSISTENT_TIMEOUT_CAP))
     deadline = time.monotonic() + total_budget
@@ -655,7 +675,9 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
 
     try:
         initial_budget = min(5.25, max(0.2, total_budget - 2.5))
-        return _dump_once(serial, compressed, initial_budget)
+        return _dump_ready_hierarchy(serial, compressed, initial_budget)
+    except HierarchyUnavailableError:
+        raise
     except PersistentUiError as exc:
         first_error = exc
 
@@ -663,8 +685,12 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
         with _start_lock(serial):
             try:
                 return _dump_once(serial, compressed, min(remaining(), 1.0))
+            except HierarchyUnavailableError:
+                raise
             except PersistentUiError:
                 pass
+            if remaining() < 3.0:
+                raise PersistentUiError("Not enough time to restart UiAutomation; using the caller's fallback budget")
             if not _stop_server(
                 serial,
                 timeout=min(0.75, remaining()),
@@ -679,6 +705,8 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
             )
             _ensure_server_locked(serial, startup_deadline)
             return _dump_once(serial, compressed, remaining())
+    except HierarchyUnavailableError:
+        raise
     except PersistentUiError as exc:
         with contextlib.suppress(Exception):
             _stop_server(
@@ -687,7 +715,7 @@ def dump_xml(serial: str, compressed: bool = True, timeout: float = 10.0) -> str
                 hard=True,
             )
         raise PersistentUiError(
-            f"persistent UiAutomation failed after restart: {exc}; "
+            f"persistent UiAutomation recovery failed: {exc}; "
             f"initial failure: {first_error}"
         ) from exc
 

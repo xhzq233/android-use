@@ -251,6 +251,46 @@ class PersistentUiTest(unittest.TestCase):
         )
         self.assertEqual(commands[4], ["rm", "-f", persistent_ui.REMOTE_PID])
 
+    def test_transient_missing_root_retries_without_restarting_server(self) -> None:
+        with mock.patch.object(persistent_ui, "_dump_once", side_effect=[persistent_ui.HierarchyUnavailableError("root unavailable"), VALID_XML]), mock.patch.object(persistent_ui.time, "sleep"), mock.patch.object(persistent_ui, "_stop_server") as stop:
+            self.assertEqual(persistent_ui.dump_xml("USB123"), VALID_XML)
+            stop.assert_not_called()
+
+    def test_persistent_missing_root_does_not_kill_responding_server(self) -> None:
+        with mock.patch.object(persistent_ui, "_dump_once", side_effect=persistent_ui.HierarchyUnavailableError("root unavailable")) as dump, mock.patch.object(persistent_ui.time, "sleep"), mock.patch.object(persistent_ui, "_stop_server") as stop:
+            with self.assertRaises(persistent_ui.HierarchyUnavailableError):
+                persistent_ui.dump_xml("USB123")
+            self.assertEqual(dump.call_count, 3)
+            stop.assert_not_called()
+
+    def test_missing_root_does_not_trigger_stock_dump(self) -> None:
+        with mock.patch.object(persistent_ui, "dump_xml", side_effect=persistent_ui.HierarchyUnavailableError("root unavailable")), mock.patch.object(persistent_ui, "stop_server") as stop, mock.patch.object(android_device, "_stock_dump_xml") as stock:
+            with self.assertRaisesRegex(RuntimeError, "server is responding"):
+                android_device.dump_xml("USB123")
+            stop.assert_not_called()
+            stock.assert_not_called()
+
+    def test_cold_start_does_not_launch_with_subsecond_budget(self) -> None:
+        clock = [0.0]
+        def prepare(*args):
+            clock[0] = 2.6
+            return "/device/server.jar"
+        with mock.patch.object(persistent_ui.time, "monotonic", side_effect=lambda: clock[0]), mock.patch.object(persistent_ui.time, "sleep"), mock.patch.object(persistent_ui, "expected_build_hash", return_value=VALID_BUILD), mock.patch.object(persistent_ui, "_server_info", side_effect=persistent_ui.PersistentUiError("not started")), mock.patch.object(persistent_ui, "_stop_server", return_value=True), mock.patch.object(persistent_ui, "_ensure_remote_jar", side_effect=prepare), mock.patch.object(persistent_ui, "_launch_server") as launch:
+            with self.assertRaisesRegex(persistent_ui.PersistentUiError, "before launch"):
+                persistent_ui._ensure_server_locked("USB123", 3.0)
+            launch.assert_not_called()
+
+    def test_does_not_launch_restart_with_exhausted_budget(self) -> None:
+        clock = [0.0]
+        def timeout_dump(serial, compressed, timeout):
+            clock[0] += timeout
+            raise persistent_ui.PersistentUiError("timed out")
+        with mock.patch.object(persistent_ui.time, "monotonic", side_effect=lambda: clock[0]), mock.patch.object(persistent_ui, "_dump_once", side_effect=timeout_dump), mock.patch.object(persistent_ui, "_stop_server", return_value=True), mock.patch.object(persistent_ui, "_ensure_server_locked") as start:
+            with self.assertRaisesRegex(persistent_ui.PersistentUiError, "Not enough time"):
+                persistent_ui.dump_xml("USB123", timeout=6.0)
+            start.assert_not_called()
+            self.assertLessEqual(clock[0], 6.0)
+
     def test_dump_reuses_server_recovered_by_another_process(self) -> None:
         with (
             mock.patch.object(
