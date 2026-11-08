@@ -17,8 +17,8 @@ need Python and ADB, without a host architecture restriction.
 
 ## Observe and act
 
-- Use `dump`, then an observed coordinate tap. If a target is
-  already known, `tap --text` avoids an extra preliminary dump; scroll-and-tap
+- Use `dump` (`--filter <kw>` to narrow), then an observed coordinate tap (`@cx,cy` is printed on every node alongside `#id`). If a target is
+  already known, `tap --text`, `tap --id`, or `tap --desc` avoids an extra preliminary dump; scroll-and-tap
   uses `tap --text ... --scroll-if-needed`. Old bounds expire after UI changes.
 - Verify actions with the resulting tree or screenshot. Use `wait` for an
   expected text, Activity or visual state instead of repeated manual dumps.

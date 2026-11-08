@@ -288,7 +288,12 @@ def command_dump(args: argparse.Namespace) -> int:
     except (AdbCommandError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    content = clean_tree_text(page.root, page.package, patterns)
+    content = clean_tree_text(
+        page.root,
+        page.package,
+        patterns,
+        filter_query=getattr(args, "filter", None),
+    )
     if args.raw_out:
         raw_path = Path(args.raw_out).expanduser().resolve()
         raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -527,6 +532,18 @@ class ScrollOperationError(RuntimeError):
         self.page = page
 
 
+def _resolve_target_and_field(args: argparse.Namespace) -> tuple[str | None, str | None, int]:
+    text = getattr(args, "text", None)
+    target_id = getattr(args, "target_id", None)
+    target_desc = getattr(args, "target_desc", None)
+    explicit_count = sum(bool(v) for v in (text, target_id, target_desc))
+    if target_id:
+        return target_id, "id", explicit_count
+    if target_desc:
+        return target_desc, "desc", explicit_count
+    return text, None, explicit_count
+
+
 def _scroll_to(
     *,
     serial: str,
@@ -540,6 +557,7 @@ def _scroll_to(
     duration: float,
     verify_delay: float,
     stop_on_no_progress: bool,
+    field: str | None = None,
 ) -> tuple[Any, UISnapshot, int]:
     previous = None
     last_page = None
@@ -552,6 +570,7 @@ def _scroll_to(
                 target,
                 package_name=page.package,
                 contains=contains,
+                field=field,
             )
             if matches:
                 return (
@@ -602,10 +621,12 @@ def _scroll_to(
 
 def command_scroll_to(args: argparse.Namespace) -> int:
     serial = _serial(args)
+    target, field, _ = _resolve_target_and_field(args)
+    assert target is not None
     try:
         node, page, attempts = _scroll_to(
             serial=serial,
-            target=args.text,
+            target=target,
             contains=args.contains,
             match_index=args.match_index,
             container=args.container,
@@ -615,6 +636,7 @@ def command_scroll_to(args: argparse.Namespace) -> int:
             duration=args.duration,
             verify_delay=args.verify_delay,
             stop_on_no_progress=args.stop_on_no_progress,
+            field=field,
         )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
@@ -624,14 +646,14 @@ def command_scroll_to(args: argparse.Namespace) -> int:
                 serial=serial,
                 operation="scroll-to",
                 reason=str(exc),
-                target=args.text,
+                target=target,
                 contains=args.contains,
                 last_page=last_page,
             )
             print(f"evidence={evidence}", file=sys.stderr)
         return 1
     payload = {
-        "target": args.text,
+        "target": target,
         "attempts": attempts,
         "node": node_payload(node),
         "pageElapsedMs": round(page.elapsed_ms, 1),
@@ -640,7 +662,7 @@ def command_scroll_to(args: argparse.Namespace) -> int:
         _print_json(payload)
     else:
         print(
-            f"found target={args.text!r} bounds={format_rect(node_rect(node))} "
+            f"found target={target!r} bounds={format_rect(node_rect(node))} "
             f"attempts={attempts}"
         )
     return 0
@@ -648,23 +670,21 @@ def command_scroll_to(args: argparse.Namespace) -> int:
 
 def command_tap(args: argparse.Namespace) -> int:
     serial = _serial(args)
-    target = args.text
+    target, field, explicit_targets = _resolve_target_and_field(args)
     raw_coordinates = args.y is not None
     if not target and args.target_or_x is not None and not raw_coordinates:
         target = args.target_or_x
-    modes = sum(
-        bool(value)
-        for value in (
-            target,
-            raw_coordinates,
-            args.normalized is not None,
-            args.from_screenshot is not None,
-        )
+        explicit_targets = 1
+    modes = (
+        explicit_targets
+        + int(bool(raw_coordinates))
+        + int(args.normalized is not None)
+        + int(args.from_screenshot is not None)
     )
-    if modes != 1 or (args.text and args.target_or_x is not None):
+    if modes != 1 or (explicit_targets > 0 and args.target_or_x is not None and not raw_coordinates and target != args.target_or_x):
         print(
-            "tap requires exactly one target, x y pair, --normalized X Y, "
-            "or --from-screenshot IMAGE X Y",
+            "tap requires exactly one target (--text/--id/--desc), x y pair, "
+            "--normalized X Y, or --from-screenshot IMAGE X Y",
             file=sys.stderr,
         )
         return 2
@@ -688,6 +708,7 @@ def command_tap(args: argparse.Namespace) -> int:
                     duration=args.scroll_duration,
                     verify_delay=args.verify_delay,
                     stop_on_no_progress=True,
+                    field=field,
                 )
             else:
                 before_page = snapshot(
@@ -699,6 +720,7 @@ def command_tap(args: argparse.Namespace) -> int:
                     target,
                     package_name=before_page.package,
                     contains=args.contains,
+                    field=field,
                 )
                 node = select_target(
                     matches,
@@ -928,14 +950,16 @@ def command_wait(args: argparse.Namespace) -> int:
         success = False
         description = ""
         try:
-            if args.text or args.text_gone:
+            wait_target, wait_field, _ = _resolve_target_and_field(args)
+            if wait_target or args.text_gone:
                 last_page = snapshot(serial)
-                target = args.text or args.text_gone
+                target = wait_target or args.text_gone
                 matches = find_target_nodes(
                     last_page.root,
                     target,
                     package_name=last_page.package,
                     contains=args.contains,
+                    field=wait_field,
                 )
                 observed = observed or bool(matches)
                 last_state = {
@@ -943,12 +967,12 @@ def command_wait(args: argparse.Namespace) -> int:
                     "pageElapsedMs": round(last_page.elapsed_ms, 1),
                     "candidates": [node_payload(node) for node in matches[:5]],
                 }
-                if args.text and args.match_index < len(matches):
+                if wait_target and args.match_index < len(matches):
                     selected = matches[args.match_index]
                     success = _node_state_matches(selected, args.state)
                     if success:
                         description = (
-                            f"target={args.text!r} bounds={format_rect(node_rect(selected))}"
+                            f"target={wait_target!r} bounds={format_rect(node_rect(selected))}"
                         )
                 elif args.text_gone:
                     success = not matches and (observed or not args.after_seen)
@@ -1020,13 +1044,14 @@ def command_wait(args: argparse.Namespace) -> int:
         "elapsedMs": round((time.monotonic() - started) * 1000, 1),
         "lastState": last_state,
     }
+    wait_target, _, _ = _resolve_target_and_field(args)
     if _json_output(args):
         if not args.no_evidence:
             evidence = collect_failure_evidence(
                 serial=serial,
                 operation="wait",
                 reason=reason,
-                target=args.text or args.text_gone,
+                target=wait_target or args.text_gone,
                 contains=args.contains,
                 last_page=last_page,
             )
@@ -1039,7 +1064,7 @@ def command_wait(args: argparse.Namespace) -> int:
                 serial=serial,
                 operation="wait",
                 reason=reason,
-                target=args.text or args.text_gone,
+                target=wait_target or args.text_gone,
                 contains=args.contains,
                 last_page=last_page,
             )

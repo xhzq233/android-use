@@ -106,6 +106,24 @@ def matches_keep_id_regex(node: ET.Element, patterns: Iterable[re.Pattern[str]])
     return bool(resource_id) and any(pattern.search(resource_id) for pattern in patterns)
 
 
+def matches_filter_query(node: ET.Element, query: str | None) -> bool:
+    if not query:
+        return True
+    needle = query.lower()
+    resource_id = node.attrib.get("resource-id") or ""
+    class_name = node.attrib.get("class") or ""
+    candidates = (
+        node.attrib.get("text") or "",
+        node.attrib.get("content-desc") or "",
+        resource_id,
+        short_id(resource_id),
+        class_name,
+        short_class(class_name),
+        node_kind(node),
+    )
+    return any(needle in value.lower() for value in candidates if value)
+
+
 def node_kind(node: ET.Element) -> str:
     cls = node.attrib.get("class", "")
     if is_scroll_node(node):
@@ -195,6 +213,7 @@ def build_atomic_tree(
     include_system: bool,
     screen: Rect,
     keep_id_regexes: Iterable[re.Pattern[str]] = (),
+    filter_query: str | None = None,
 ) -> list[dict[str, Any]]:
     children: list[dict[str, Any]] = []
     for child in list(node):
@@ -205,18 +224,27 @@ def build_atomic_tree(
                 include_system=include_system,
                 screen=screen,
                 keep_id_regexes=keep_id_regexes,
+                filter_query=filter_query,
             )
         )
 
     if not should_keep_package(node, package_name, include_system):
         return children
     kept_by_id = matches_keep_id_regex(node, keep_id_regexes)
-    is_atomic = is_atomic_node(node) or kept_by_id
+    matched_filter = matches_filter_query(node, filter_query)
+    has_identifiable_attr = bool(
+        node_text(node)
+        or node.attrib.get("resource-id")
+        or node.attrib.get("clickable") == "true"
+    )
+    is_atomic = is_atomic_node(node) or kept_by_id or (bool(filter_query) and matched_filter and has_identifiable_attr)
     if not is_atomic:
         return children
+    if filter_query and not matched_filter and not children:
+        return []
 
     kind = node_kind(node)
-    if kept_by_id and kind == "-":
+    if (kept_by_id or (filter_query and matched_filter)) and kind == "-":
         kind = short_class(node.attrib.get("class")) or "View"
     tags = [kind]
     if kept_by_id:
@@ -232,6 +260,8 @@ def build_atomic_tree(
         tags.append("disabled")
     item: dict[str, Any] = {
         "label": node_label(node),
+        "id": short_id(node.attrib.get("resource-id")),
+        "desc": (node.attrib.get("content-desc") or "").strip(),
         "kind": kind,
         "tags": tags,
         "bounds": parse_bounds(node.attrib.get("bounds")),
@@ -247,9 +277,14 @@ def tree_to_text(items: list[dict[str, Any]], screen: Rect) -> str:
 
     def emit(item: dict[str, Any], depth: int) -> None:
         tags = ",".join(item["tags"])
+        label = item["label"]
+        sid = item.get("id") or ""
+        id_suffix = f" #{sid}" if sid and sid != label else ""
+        bounds: Rect = item["bounds"]
+        cx, cy = bounds.center
         lines.append(
             "  " * depth
-            + f"- {item['label']} [{tags}] {format_rect(item['bounds'])}"
+            + f"- {label}{id_suffix} [{tags}] {format_rect(bounds)} @{cx},{cy}"
         )
         for child in item.get("children", []):
             emit(child, depth + 1)
