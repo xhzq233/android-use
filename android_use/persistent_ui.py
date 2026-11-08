@@ -272,6 +272,8 @@ def _server_process_state(
     except AdbCommandError:
         return ServerProcessState(None, False)
     if result.returncode != 0:
+        if "No such file" in (result.stdout or "") or "No such file" in (result.stderr or ""):
+            return ServerProcessState(None, True)
         try:
             absent = run_adb_shell(
                 serial,
@@ -285,9 +287,9 @@ def _server_process_state(
     try:
         pid = int(result.stdout.strip())
     except ValueError:
-        return ServerProcessState(None, False)
+        return ServerProcessState(None, True)
     if pid <= 1:
-        return ServerProcessState(None, False)
+        return ServerProcessState(None, True)
     try:
         environment = run_adb_shell(
             serial,
@@ -298,6 +300,9 @@ def _server_process_state(
     except AdbCommandError:
         return ServerProcessState(None, False)
     if environment.returncode != 0:
+        env_out = (environment.stdout or "") + "\n" + (environment.stderr or "")
+        if "No such file" in env_out or "Permission denied" in env_out:
+            return ServerProcessState(None, True)
         try:
             gone = run_adb_shell(
                 serial,
@@ -312,7 +317,7 @@ def _server_process_state(
         "CLASSPATH=" not in environment.stdout
         or REMOTE_JAR_MARKER not in environment.stdout
     ):
-        return ServerProcessState(None, False)
+        return ServerProcessState(None, True)
     return ServerProcessState(pid, False)
 
 

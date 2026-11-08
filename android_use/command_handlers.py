@@ -381,8 +381,9 @@ def _save_screenshot(
 
 def command_screenshot(args: argparse.Namespace) -> int:
     serial = _serial(args)
-    if args.out:
-        output = Path(args.out).expanduser().resolve()
+    out_arg = getattr(args, "out_flag", None) or args.out
+    if out_arg:
+        output = Path(out_arg).expanduser().resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
     else:
         output = _artifact_directory("screenshot") / "screenshot.png"

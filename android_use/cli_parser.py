@@ -191,6 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_serial(screenshot)
     add_format(screenshot)
     screenshot.add_argument("out", nargs="?")
+    screenshot.add_argument("-o", "--out", dest="out_flag")
     screenshot.add_argument("--timeout", type=float, default=10.0)
     screenshot.set_defaults(func=command_screenshot)
 
