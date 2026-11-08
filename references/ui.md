@@ -7,18 +7,19 @@
 
 ```bash
 android-use dump
+android-use dump --filter "消除"
 android-use dump --stats
 android-use dump --raw-out /tmp/page.xml
 android-use dump --keep-id-regex '.*:id/(badge|dot)$'
 ```
 
-- `dump` 复用设备侧系统 UiAutomation 会话，输出清洗后的原子树；首用自动推送仓库
+- `dump` 复用设备侧系统 UiAutomation 会话，输出清洗后的原子树（同时展示文案、`#resource-id`、bounds `(x,y,w,h)` 与中心坐标 `@cx,cy`）；首用自动推送仓库
   内置的小型测试 JAR，不安装 APK、不要求手动管理进程，异常时回退系统
   `uiautomator dump --compressed`。
 - 不要同时运行原始 `uiautomator dump`、instrumentation 或其它 UiAutomation 工具；
   android-use 只在确认自身会话已退出后才会启动 stock 回退。
-- bounds 为设备像素 `(x,y,w,h)`。raw XML 有目标但 clean tree 没有时，可临时用
-  `--keep-id-regex`；raw XML 也没有时直接查看截图。
+- 支持 `--filter <关键字>`（或 `-q`）按文案、content-desc 或 resource-id 子串过滤树。bounds 为设备像素 `(x,y,w,h)`，末尾 `@cx,cy` 为中心点击坐标。raw XML 有目标但 clean tree 没有时，可用
+  `--filter` 或 `--keep-id-regex`；raw XML 也没有时直接查看截图。
 - 目标真机首次启动通常约 1 至 3 秒，热 dump 通常约 0.1 至 0.3 秒；回退 stock 时通常
   为 2 至 4 秒。
 - Lynx、自绘画布、颜色、透明度和图片效果通常不在树中，必须看截图。
@@ -30,14 +31,15 @@ android-use tap 636 2100
 android-use tap --normalized 0.5 0.75 --mark /tmp/tap-point.png
 android-use tap --from-screenshot /tmp/current.png 540 1200
 android-use tap --text "导入照片"
+android-use tap --id "iv_close"
+android-use tap --desc "返回"
 android-use tap --text "目标项目" --scroll-if-needed --container horizontal
 android-use tap --text "导入照片" --verify-change
 ```
 
 - `--normalized` 使用 `[0,1]`；`--from-screenshot` 使用原始图片像素。工具返回最终输入坐标。
 - 截图与当前设备宽高比或方向不一致时拒绝映射。
-- 文本目标匹配 text、content-desc、resource-id 和 class；子串匹配加 `--contains`，
-  重名用 `--match-index`。
+- `--text` 匹配 text、content-desc、resource-id 和 class；`--id` 精确或子串（配合 `--contains`）匹配 `resource-id` / 短 id；`--desc` 匹配 `content-desc`；重名用 `--match-index`。
 - `--verify-change` 只在明确预期 Activity 或树变化时使用。
 
 ## Wait

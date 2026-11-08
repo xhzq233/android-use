@@ -100,6 +100,7 @@ def clean_tree_text(
     root: ET.Element,
     package_name: str | None,
     keep_id_regexes=(),
+    filter_query: str | None = None,
 ) -> str:
     screen = screen_rect(root)
     items = []
@@ -111,6 +112,7 @@ def clean_tree_text(
                 include_system=False,
                 screen=screen,
                 keep_id_regexes=keep_id_regexes,
+                filter_query=filter_query,
             )
         )
     return tree_to_text(items, screen)
@@ -121,19 +123,43 @@ def _node_dump_values(node: ET.Element) -> list[str]:
     kind = node_kind(node)
     if not label or not kind or kind == "-":
         return []
+    rect = node_rect(node)
+    cx, cy = rect.center
     base = f"{label} [{kind}]"
-    return [base, f"{base} {format_rect(node_rect(node))}"]
+    values = [
+        base,
+        f"{base} {format_rect(rect)}",
+        f"{base} {format_rect(rect)} @{cx},{cy}",
+    ]
+    sid = short_id(node.attrib.get("resource-id"))
+    if sid and sid != label:
+        base_with_id = f"{label} #{sid} [{kind}]"
+        values.extend(
+            [
+                base_with_id,
+                f"{base_with_id} {format_rect(rect)}",
+                f"{base_with_id} {format_rect(rect)} @{cx},{cy}",
+            ]
+        )
+    return values
 
 
-def _node_match_values(node: ET.Element) -> list[str]:
+def _node_match_values(node: ET.Element, field: str | None = None) -> list[str]:
     resource_id = node.attrib.get("resource-id") or ""
+    sid = short_id(resource_id)
+    if field == "id":
+        return [val for val in (resource_id, sid, f"#{sid}" if sid else "") if val]
+    if field == "desc":
+        desc = node.attrib.get("content-desc") or ""
+        return [desc] if desc else []
     class_name = node.attrib.get("class") or ""
     return [
         node_text(node),
         node_label(node),
         node.attrib.get("content-desc") or "",
         resource_id,
-        short_id(resource_id),
+        sid,
+        f"#{sid}" if sid else "",
         class_name,
         short_class(class_name),
         *_node_dump_values(node),
@@ -144,10 +170,18 @@ def _matches(value: str, target: str, contains: bool) -> bool:
     return target in value if contains else target == value
 
 
-def node_matches_target(node: ET.Element, target: str, contains: bool) -> bool:
+def node_matches_target(
+    node: ET.Element,
+    target: str,
+    contains: bool,
+    *,
+    field: str | None = None,
+) -> bool:
+    if field == "id" and target.startswith("#"):
+        target = target[1:]
     return any(
         value and _matches(value, target, contains)
-        for value in _node_match_values(node)
+        for value in _node_match_values(node, field=field)
     )
 
 
@@ -188,6 +222,7 @@ def find_target_nodes(
     package_name: str | None,
     contains: bool = False,
     scroll_only: bool = False,
+    field: str | None = None,
 ) -> list[ET.Element]:
     screen = screen_rect(root)
 
@@ -200,7 +235,7 @@ def find_target_nodes(
                 continue
             if not is_visible(node, screen):
                 continue
-            if node_matches_target(node, target, contains):
+            if node_matches_target(node, target, contains, field=field):
                 found.append(node)
         return found
 

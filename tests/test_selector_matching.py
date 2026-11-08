@@ -8,7 +8,12 @@ from xml.etree import ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from android_use.geometry_types import Rect
-from android_use.ui_semantics import find_target_nodes, node_rect, select_scroll_node
+from android_use.ui_semantics import (
+    clean_tree_text,
+    find_target_nodes,
+    node_rect,
+    select_scroll_node,
+)
 
 
 PKG = "com.example.app"
@@ -74,6 +79,40 @@ class SelectorMatchingTest(unittest.TestCase):
         selected = select_scroll_node(root, PKG, "horizontal", 0)
 
         self.assertEqual(node_rect(selected), Rect(0, 2000, 1080, 200))
+
+    def test_clean_tree_preserves_id_center_and_supports_filter_and_id_desc_selectors(self) -> None:
+        root = parse(
+            f"""
+            <hierarchy>
+              <node package="{PKG}" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]">
+                <node package="{PKG}" class="android.widget.TextView"
+                      text="冰透粉" resource-id="{PKG}:id/tv_name"
+                      bounds="[351,2038][510,2086]" clickable="true" />
+                <node package="{PKG}" class="android.widget.ImageView"
+                      content-desc="关闭面板" resource-id="{PKG}:id/iv_close"
+                      bounds="[20,100][100,180]" clickable="true" />
+                <node package="{PKG}" class="android.widget.TextView"
+                      text="其他项" resource-id="{PKG}:id/tv_other"
+                      bounds="[100,500][300,600]" />
+              </node>
+            </hierarchy>
+            """
+        )
+        full_tree = clean_tree_text(root, PKG)
+        self.assertIn("- 冰透粉 #tv_name [Text] (351,2038,159,48) @430,2062", full_tree)
+        self.assertIn("- 关闭面板 #iv_close [Button] (20,100,80,80) @60,140", full_tree)
+
+        filtered = clean_tree_text(root, PKG, filter_query="iv_close")
+        self.assertIn("#iv_close", filtered)
+        self.assertNotIn("冰透粉", filtered)
+
+        by_id = find_target_nodes(root, "iv_close", package_name=PKG, field="id")
+        self.assertEqual(len(by_id), 1)
+        self.assertEqual(node_rect(by_id[0]).center, (60, 140))
+
+        by_desc = find_target_nodes(root, "关闭", package_name=PKG, contains=True, field="desc")
+        self.assertEqual(len(by_desc), 1)
+        self.assertEqual(node_rect(by_desc[0]).center, (60, 140))
 
 
 if __name__ == "__main__":
